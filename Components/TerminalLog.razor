@@ -1,0 +1,181 @@
+@rendermode InteractiveServer
+@inject TerminalService Terminal
+@inject IJSRuntime JS
+
+<div class="terminal-panel">
+    <div class="panel-header">
+        <span class="panel-icon">💻</span>
+        <span class="panel-title">Terminal</span>
+        <button class="icon-btn" @onclick="Clear" title="Clear">🗑</button>
+    </div>
+
+    <div class="terminal-output" id="terminalScroll">
+        @foreach (var line in _lines)
+        {
+            <div class="terminal-line @GetLineClass(line)">@line</div>
+        }
+        @if (_isRunning)
+        {
+            <div class="terminal-line cursor-blink">▌</div>
+        }
+    </div>
+
+    <div class="terminal-input-bar">
+        <span class="terminal-prompt">PS&gt;</span>
+        <input class="terminal-cmd-input"
+               @bind="_commandInput"
+               @bind:event="oninput"
+               @onkeydown="HandleKeyDown"
+               placeholder="powershell command..."
+               disabled="@_isRunning" />
+        <button class="run-btn" @onclick="RunCommand" disabled="@_isRunning">
+            @if (_isRunning) { <span>⏳</span> } else { <span>▶ Run</span> }
+        </button>
+        @if (_isRunning)
+        {
+            <button class="cancel-btn" @onclick="CancelRun">✕</button>
+        }
+    </div>
+
+    <!-- Quick Commands -->
+    <div class="quick-commands">
+        @foreach (var cmd in QuickCommands)
+        {
+            <button class="quick-cmd" @onclick="() => RunQuickCommand(cmd.Command)"
+                    title="@cmd.Command" disabled="@_isRunning">
+                @cmd.Label
+            </button>
+        }
+    </div>
+</div>
+
+@code {
+    private List<string> _lines = new();
+    private string _commandInput = string.Empty;
+    private bool _isRunning = false;
+    private CancellationTokenSource? _cts;
+    private List<string> _commandHistory = new();
+    private int _historyIndex = -1;
+
+    private static readonly (string Label, string Command)[] QuickCommands =
+    {
+        ("build", "dotnet build"),
+        ("run", "dotnet run"),
+        ("test", "dotnet test"),
+        ("git status", "git status"),
+        ("dotnet --version", "dotnet --version"),
+    };
+
+    // Called from Dashboard when skill output arrives
+    public async Task AppendLineAsync(string line)
+    {
+        _lines.Add(line);
+        StateHasChanged();
+        await ScrollToBottom();
+    }
+
+    private async Task RunCommand()
+    {
+        if (string.IsNullOrWhiteSpace(_commandInput) || _isRunning) return;
+
+        var cmd = _commandInput.Trim();
+        _commandHistory.Insert(0, cmd);
+        _commandInput = string.Empty;
+        _historyIndex = -1;
+
+        await ExecuteCommand(cmd);
+    }
+
+    private async Task RunQuickCommand(string cmd)
+    {
+        if (_isRunning) return;
+        _lines.Add($"PS> {cmd}");
+        await ExecuteCommand(cmd);
+    }
+
+    private async Task ExecuteCommand(string cmd)
+    {
+        _isRunning = true;
+        _cts = new CancellationTokenSource();
+        _lines.Add($"PS> {cmd}");
+
+        StateHasChanged();
+
+        try
+        {
+            await foreach (var line in Terminal.RunCommandStreamAsync(cmd, ct: _cts.Token))
+            {
+                _lines.Add(line);
+                // Limit buffer to prevent runaway memory
+                if (_lines.Count > 2000)
+                    _lines.RemoveAt(0);
+
+                StateHasChanged();
+                await ScrollToBottom();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _lines.Add("[Cancelled]");
+        }
+        catch (Exception ex)
+        {
+            _lines.Add($"ERR: {ex.Message}");
+        }
+        finally
+        {
+            _isRunning = false;
+            _cts = null;
+            StateHasChanged();
+            await ScrollToBottom();
+        }
+    }
+
+    private void CancelRun()
+    {
+        _cts?.Cancel();
+    }
+
+    private void Clear()
+    {
+        _lines.Clear();
+        StateHasChanged();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await RunCommand();
+        }
+        else if (e.Key == "ArrowUp" && _commandHistory.Count > 0)
+        {
+            _historyIndex = Math.Min(_historyIndex + 1, _commandHistory.Count - 1);
+            _commandInput = _commandHistory[_historyIndex];
+        }
+        else if (e.Key == "ArrowDown")
+        {
+            _historyIndex = Math.Max(_historyIndex - 1, -1);
+            _commandInput = _historyIndex >= 0 ? _commandHistory[_historyIndex] : string.Empty;
+        }
+    }
+
+    private static string GetLineClass(string line)
+    {
+        if (line.StartsWith("ERR:") || line.Contains("error", StringComparison.OrdinalIgnoreCase))
+            return "err";
+        if (line.StartsWith("PS>"))
+            return "prompt";
+        if (line.StartsWith("[Exit code: 0]"))
+            return "success";
+        if (line.StartsWith("[Exit"))
+            return "err";
+        return "";
+    }
+
+    private async Task ScrollToBottom()
+    {
+        try { await JS.InvokeVoidAsync("scrollToBottom", "terminalScroll"); }
+        catch { }
+    }
+}

@@ -1,0 +1,256 @@
+@rendermode InteractiveServer
+@inject KoboldCppClient Kobold
+@inject SearchReplaceService DiffEngine
+@inject FileSystemService Fs
+@inject IJSRuntime JS
+
+<div class="chat-console">
+    <div class="panel-header">
+        <span class="panel-icon">💬</span>
+        <span class="panel-title">Dev Chat</span>
+        @if (!string.IsNullOrEmpty(SelectedFilePath))
+        {
+            <span class="context-badge" title="@SelectedFilePath">
+                📎 @Path.GetFileName(SelectedFilePath)
+            </span>
+        }
+        <button class="icon-btn" @onclick="ClearHistory" title="Clear history">🗑</button>
+        <div class="token-meter" title="@_tokenEstimate tokens used">
+            <div class="token-fill" style="width: @TokenPercent%"></div>
+        </div>
+        <span class="token-label">~@_tokenEstimate / @Kobold.MaxTokens</span>
+    </div>
+
+    <!-- Message List -->
+    <div class="message-list" id="chatScroll">
+        @foreach (var msg in _history)
+        {
+            <div class="message @msg.Role.ToString().ToLower() @(msg.IsStreaming ? "streaming" : "")">
+                <div class="msg-meta">
+                    <span class="msg-role">@msg.RoleName</span>
+                    <span class="msg-time">@msg.Timestamp.ToString("HH:mm")</span>
+                </div>
+                <div class="msg-content">
+                    @((MarkupString)RenderMarkdown(msg.Content))
+                </div>
+
+                @if (msg.DiffBlocks.Count > 0)
+                {
+                    <div class="diff-actions">
+                        @foreach (var block in msg.DiffBlocks)
+                        {
+                            <div class="diff-block-card @block.Status.ToString().ToLower()">
+                                <div class="diff-block-header">
+                                    <span>@Path.GetFileName(block.TargetFilePath)</span>
+                                    <span class="diff-status">@block.Status</span>
+                                </div>
+                                @if (block.Status == DiffBlockStatus.Pending)
+                                {
+                                    <button class="btn-apply" @onclick="() => ApplyBlock(block)">
+                                        ✅ Apply Change
+                                    </button>
+                                }
+                                @if (block.Status == DiffBlockStatus.Failed && block.ErrorMessage != null)
+                                {
+                                    <div class="diff-error">⚠️ @block.ErrorMessage</div>
+                                }
+                            </div>
+                        }
+                        @if (msg.DiffBlocks.Any(b => b.Status == DiffBlockStatus.Pending))
+                        {
+                            <button class="btn-apply-all" @onclick="() => ApplyAllBlocks(msg)">
+                                ✅ Apply All (@msg.DiffBlocks.Count(b => b.Status == DiffBlockStatus.Pending))
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        @if (_isStreaming)
+        {
+            <div class="message assistant streaming">
+                <div class="msg-meta">
+                    <span class="msg-role">SumGravity</span>
+                    <span class="typing-indicator"><span></span><span></span><span></span></span>
+                </div>
+                <div class="msg-content">
+                    @((MarkupString)RenderMarkdown(_streamBuffer))
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (!KoboldReachable)
+    {
+        <div class="offline-banner">
+            ⚠️ KoboldCPP is offline at <code>localhost:5001</code>. Start KoboldCPP to enable chat.
+        </div>
+    }
+
+    <!-- Input Bar -->
+    <div class="chat-input-bar">
+        <textarea class="chat-input"
+                  @bind="_inputText"
+                  @bind:event="oninput"
+                  @onkeydown="HandleKeyDown"
+                  placeholder="Ask SumGravity anything... (Enter to send, Shift+Enter for newline)"
+                  rows="3"
+                  disabled="@(_isStreaming || !KoboldReachable)" />
+        <div class="chat-input-actions">
+            @if (!string.IsNullOrEmpty(SelectedFilePath))
+            {
+                <label class="inject-file-btn">
+                    <input type="checkbox" @bind="_injectFileContent" />
+                    Inject file
+                </label>
+            }
+            <button class="send-btn" @onclick="SendMessage"
+                    disabled="@(_isStreaming || string.IsNullOrWhiteSpace(_inputText) || !KoboldReachable)">
+                @if (_isStreaming) { <span>⏳</span> } else { <span>Send ⮕</span> }
+            </button>
+            @if (_isStreaming)
+            {
+                <button class="cancel-btn" @onclick="CancelStream">✕ Stop</button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? SelectedFilePath { get; set; }
+    [Parameter] public bool KoboldReachable { get; set; }
+
+    private List<ChatMessage> _history = new();
+    private string _inputText = string.Empty;
+    private string _streamBuffer = string.Empty;
+    private bool _isStreaming = false;
+    private bool _injectFileContent = false;
+    private int _tokenEstimate = 0;
+    private CancellationTokenSource? _cts;
+
+    private double TokenPercent => Math.Min(100, (_tokenEstimate / (double)Kobold.MaxTokens) * 100);
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(_inputText) || _isStreaming) return;
+
+        var userText = _inputText.Trim();
+
+        // Optionally inject selected file content
+        if (_injectFileContent && !string.IsNullOrEmpty(SelectedFilePath) && Fs.FileExists(SelectedFilePath))
+        {
+            var fileContent = await Fs.ReadFileAsync(SelectedFilePath);
+            var ext = Path.GetExtension(SelectedFilePath).TrimStart('.');
+            userText = $"File: `{SelectedFilePath}`\n```{ext}\n{fileContent}\n```\n\n{userText}";
+        }
+
+        _history.Add(new ChatMessage { Role = MessageRole.User, Content = userText });
+        _inputText = string.Empty;
+        _isStreaming = true;
+        _streamBuffer = string.Empty;
+        _cts = new CancellationTokenSource();
+
+        StateHasChanged();
+        await ScrollToBottom();
+
+        try
+        {
+            await foreach (var chunk in Kobold.StreamAsync(_history, userText, _cts.Token))
+            {
+                _streamBuffer += chunk;
+                EstimateTokens();
+                StateHasChanged();
+                await ScrollToBottom();
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _streamBuffer += $"\n\n⚠️ Error: {ex.Message}";
+        }
+        finally
+        {
+            // Finalize assistant message
+            var assistantMsg = new ChatMessage
+            {
+                Role = MessageRole.Assistant,
+                Content = _streamBuffer,
+                IsStreaming = false
+            };
+
+            // Parse any diff blocks from response
+            if (SearchReplaceService.ContainsDiffBlocks(_streamBuffer))
+            {
+                assistantMsg.DiffBlocks = DiffEngine.ParseBlocks(
+                    _streamBuffer, SelectedFilePath);
+            }
+
+            _history.Add(assistantMsg);
+            _streamBuffer = string.Empty;
+            _isStreaming = false;
+            _cts = null;
+            EstimateTokens();
+            StateHasChanged();
+            await ScrollToBottom();
+        }
+    }
+
+    private async Task ApplyBlock(DiffBlock block)
+    {
+        await DiffEngine.ApplyBlockAsync(block);
+        StateHasChanged();
+    }
+
+    private async Task ApplyAllBlocks(ChatMessage msg)
+    {
+        await DiffEngine.ApplyAllBlocksAsync(
+            msg.DiffBlocks.Where(b => b.Status == DiffBlockStatus.Pending).ToList());
+        StateHasChanged();
+    }
+
+    private void CancelStream()
+    {
+        _cts?.Cancel();
+    }
+
+    private void ClearHistory()
+    {
+        _history.Clear();
+        _tokenEstimate = 0;
+        StateHasChanged();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessage();
+        }
+    }
+
+    private void EstimateTokens()
+    {
+        // Rough estimate: 4 chars ≈ 1 token
+        var totalChars = _history.Sum(m => m.Content.Length) + _streamBuffer.Length;
+        _tokenEstimate = totalChars / 4;
+    }
+
+    private async Task ScrollToBottom()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("scrollToBottom", "chatScroll");
+        }
+        catch { }
+    }
+
+    private static string RenderMarkdown(string md)
+    {
+        if (string.IsNullOrEmpty(md)) return string.Empty;
+        // Plain pipeline — extension methods live in Markdig.Extensions namespace
+        // which is included transitively via the Markdig package
+        var pipeline = new Markdig.MarkdownPipelineBuilder().Build();
+        return Markdig.Markdown.ToHtml(md, pipeline);
+    }
+}

@@ -1,0 +1,101 @@
+@rendermode InteractiveServer
+@inject SkillsService Skills
+
+<div class="skills-panel">
+    <div class="panel-header">
+        <span class="panel-icon">⚙️</span>
+        <span class="panel-title">Skills</span>
+        <button class="icon-btn" @onclick="Refresh" title="Refresh">↺</button>
+    </div>
+
+    @if (_skills.Count == 0)
+    {
+        <div class="skills-empty">
+            <span>No skills found at</span>
+            <code>@Skills.SkillsRoot</code>
+        </div>
+    }
+    else
+    {
+        <div class="skills-grid">
+            @foreach (var skill in _skills)
+            {
+                <div class="skill-card @skill.Status.ToString().ToLower()"
+                     title="@skill.FilePath">
+                    <div class="skill-card-header">
+                        <span class="skill-icon">@GetIcon(skill.FileType)</span>
+                        <span class="skill-name">@skill.Name</span>
+                        <span class="skill-badge @skill.Status.ToString().ToLower()">
+                            @skill.Status
+                        </span>
+                    </div>
+                    <div class="skill-desc">@skill.Description</div>
+                    <div class="skill-actions">
+                        <button class="run-skill-btn"
+                                @onclick="() => RunSkill(skill)"
+                                disabled="@(skill.Status == SkillStatus.Running)">
+                            @if (skill.Status == SkillStatus.Running)
+                            { <span>⏳ Running...</span> }
+                            else
+                            { <span>▶ Run</span> }
+                        </button>
+                        @if (skill.LastRun.HasValue)
+                        {
+                            <span class="skill-last-run">@skill.LastRun.Value.ToString("HH:mm")</span>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public EventCallback<string> OnSkillOutput { get; set; }
+
+    private List<SkillManifest> _skills = new();
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+    }
+
+    private void Refresh()
+    {
+        _skills = Skills.GetSkills();
+        StateHasChanged();
+    }
+
+    private async Task RunSkill(SkillManifest skill)
+    {
+        skill.Status = SkillStatus.Running;
+        StateHasChanged();
+
+        try
+        {
+            await OnSkillOutput.InvokeAsync($"=== Running skill: {skill.Name} ===");
+
+            await foreach (var line in Skills.RunSkillAsync(skill))
+            {
+                await OnSkillOutput.InvokeAsync(line);
+            }
+
+            skill.Status = SkillStatus.Done;
+            await OnSkillOutput.InvokeAsync($"=== Skill complete: {skill.Name} ===");
+        }
+        catch (Exception ex)
+        {
+            skill.Status = SkillStatus.Error;
+            await OnSkillOutput.InvokeAsync($"ERR: {ex.Message}");
+        }
+
+        StateHasChanged();
+    }
+
+    private static string GetIcon(string fileType) => fileType switch
+    {
+        "ps1" => "💻",
+        "md" => "📝",
+        _ => "⚙️"
+    };
+}

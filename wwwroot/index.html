@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="SumGravity 1.0 — Local AI development assistant powered by KoboldCPP" />
+    <title>SumGravity 1.0</title>
+    <base href="/" />
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+    <!-- App Styles -->
+    <link rel="stylesheet" href="css/app.css" />
+    <link href="SumGravity.styles.css" rel="stylesheet" />
+</head>
+<body>
+    <div id="app">
+        <!-- Loading screen while Blazor initializes -->
+        <div style="
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            height: 100vh; background: #0b0d12;
+            color: #8d93a8; font-family: 'Inter', sans-serif; gap: 16px;">
+            <div style="font-size: 48px; animation: spin 1s linear infinite;">⚡</div>
+            <div style="font-size: 20px; font-weight: 700;
+                background: linear-gradient(135deg, #9d8ffb, #3ec9a7);
+                -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                SumGravity 1.0
+            </div>
+            <div style="font-size: 13px; color: #555d73;">Initializing local assistant...</div>
+        </div>
+        <style>
+            @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        </style>
+    </div>
+
+    <div id="blazor-error-ui">
+        ⚠️ An error occurred. <a href="" class="reload">Reload</a>
+        <a class="dismiss">✕</a>
+    </div>
+
+    <script>
+        // Utility used by ChatConsole and TerminalLog to auto-scroll
+        window.scrollToBottom = (elementId) => {
+            const el = document.getElementById(elementId);
+            if (el) el.scrollTop = el.scrollHeight;
+        };
+    </script>
+
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

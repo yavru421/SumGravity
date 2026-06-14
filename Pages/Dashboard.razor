@@ -1,0 +1,86 @@
+@page "/"
+@rendermode InteractiveServer
+
+<PageTitle>SumGravity 1.0 — Dev Assistant</PageTitle>
+
+<div class="dashboard">
+
+    <!-- ── Header Bar ──────────────────────────────────────── -->
+    <header class="sg-header">
+        <div class="sg-logo">
+            <span class="sg-logo-mark">⚡</span>
+            <span class="sg-logo-text">SumGravity</span>
+            <span class="sg-version">1.0</span>
+        </div>
+        <div class="sg-header-status">
+            @if (_koboldReachable)
+            {
+                <span class="status-dot online" title="KoboldCPP connected"></span>
+                <span class="status-label">@_modelLabel</span>
+            }
+            else
+            {
+                <span class="status-dot offline" title="KoboldCPP offline"></span>
+                <span class="status-label">KoboldCPP Offline</span>
+            }
+            <button class="icon-btn" @onclick="CheckKobold" title="Refresh connection">↺</button>
+        </div>
+    </header>
+
+    <!-- ── Three-Column Layout ────────────────────────────── -->
+    <div class="dashboard-body">
+
+        <!-- Column 1: File Explorer + Skills Runner -->
+        <aside class="sidebar-left">
+            <FileExplorer OnFileSelected="HandleFileSelected" />
+            <div class="sidebar-divider"></div>
+            <SkillsRunner OnSkillOutput="HandleSkillOutput" />
+        </aside>
+
+        <!-- Column 2: Chat Console (main) -->
+        <main class="main-panel">
+            <ChatConsole
+                SelectedFilePath="@_selectedFilePath"
+                KoboldReachable="@_koboldReachable" />
+        </main>
+
+        <!-- Column 3: Terminal Log -->
+        <aside class="sidebar-right">
+            <TerminalLog @ref="_terminalLog" />
+        </aside>
+
+    </div>
+</div>
+
+@code {
+    [Inject] private KoboldCppClient Kobold { get; set; } = default!;
+
+    private bool _koboldReachable = false;
+    private string _modelLabel = "Checking...";
+    private string? _selectedFilePath;
+    private TerminalLog? _terminalLog;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckKobold();
+    }
+
+    private async Task CheckKobold()
+    {
+        _koboldReachable = await Kobold.IsReachableAsync();
+        _modelLabel = _koboldReachable ? "KoboldCPP ✓" : "KoboldCPP ✗";
+        StateHasChanged();
+    }
+
+    private void HandleFileSelected(string path)
+    {
+        _selectedFilePath = path;
+        StateHasChanged();
+    }
+
+    private async Task HandleSkillOutput(string line)
+    {
+        if (_terminalLog is not null)
+            await _terminalLog.AppendLineAsync(line);
+    }
+}

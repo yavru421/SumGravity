@@ -1,0 +1,68 @@
+@rendermode InteractiveServer
+@inject FileSystemService Fs
+@inject IConfiguration Config
+
+<div class="file-explorer">
+    <div class="panel-header">
+        <span class="panel-icon">📁</span>
+        <span class="panel-title">Files</span>
+        <button class="icon-btn" @onclick="Refresh" title="Refresh">↺</button>
+    </div>
+
+    <div class="explorer-root-bar">
+        <input class="root-input" @bind="_rootPath" @bind:event="oninput"
+               placeholder="Root path..." />
+        <button class="icon-btn go-btn" @onclick="NavigateTo" title="Go">→</button>
+    </div>
+
+    @if (_root is not null)
+    {
+        <div class="explorer-tree">
+            <FileTreeNode Node="_root" OnFileSelected="HandleSelect" />
+        </div>
+    }
+    else
+    {
+        <div class="explorer-empty">Loading...</div>
+    }
+
+    @if (!string.IsNullOrEmpty(_selectedPath))
+    {
+        <div class="explorer-selected" title="@_selectedPath">
+            📄 @Path.GetFileName(_selectedPath)
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public EventCallback<string> OnFileSelected { get; set; }
+
+    private FileNode? _root;
+    private string _rootPath = @"c:\dev";
+    private string? _selectedPath;
+
+    protected override void OnInitialized()
+    {
+        _rootPath = Fs.DefaultRoot;
+        Refresh();
+    }
+
+    private void Refresh()
+    {
+        _root = Fs.BuildTree(_rootPath, maxDepth: 3);
+        StateHasChanged();
+    }
+
+    private void NavigateTo()
+    {
+        if (Directory.Exists(_rootPath))
+            Refresh();
+    }
+
+    private async Task HandleSelect(string path)
+    {
+        _selectedPath = path;
+        await OnFileSelected.InvokeAsync(path);
+        StateHasChanged();
+    }
+}

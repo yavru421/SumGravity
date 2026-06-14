@@ -1,0 +1,58 @@
+@rendermode InteractiveServer
+
+<!-- Recursive file tree node -->
+<div class="tree-node @(Node.IsDirectory ? "tree-dir" : "tree-file")">
+    <div class="tree-row @(Node.IsSelected ? "selected" : "")"
+         @onclick="ToggleOrSelect">
+        @if (Node.IsDirectory)
+        {
+            <span class="tree-expand">@(Node.IsExpanded ? "▾" : "▸")</span>
+        }
+        else
+        {
+            <span class="tree-expand">&nbsp;</span>
+        }
+        <span class="tree-icon">@Node.Icon</span>
+        <span class="tree-name">@Node.Name</span>
+        @if (!Node.IsDirectory && Node.SizeBytes.HasValue)
+        {
+            <span class="tree-size">@FormatSize(Node.SizeBytes.Value)</span>
+        }
+    </div>
+
+    @if (Node.IsDirectory && Node.IsExpanded && Node.Children.Count > 0)
+    {
+        <div class="tree-children">
+            @foreach (var child in Node.Children)
+            {
+                <FileTreeNode Node="child" OnFileSelected="OnFileSelected" />
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public FileNode Node { get; set; } = default!;
+    [Parameter] public EventCallback<string> OnFileSelected { get; set; }
+
+    private async Task ToggleOrSelect()
+    {
+        if (Node.IsDirectory)
+        {
+            Node.IsExpanded = !Node.IsExpanded;
+        }
+        else
+        {
+            Node.IsSelected = true;
+            await OnFileSelected.InvokeAsync(Node.FullPath);
+        }
+        StateHasChanged();
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes}B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024}KB";
+        return $"{bytes / (1024 * 1024)}MB";
+    }
+}
