@@ -1,0 +1,14 @@
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(SumGravity.Layout.MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>Not Found — SumGravity</PageTitle>
+        <LayoutView Layout="@typeof(SumGravity.Layout.MainLayout)">
+            <div class="not-found">
+                <h1>404 — Page Not Found</h1>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>
