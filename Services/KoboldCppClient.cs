@@ -13,6 +13,8 @@ public class KoboldCppClient
     private readonly IConfiguration _config;
     private readonly ILogger<KoboldCppClient> _logger;
 
+    public bool UseHomesliceVibe { get; set; } = false;
+
     private const string DevSystemPrompt = """
         You are SumGravity, a powerful local agentic AI coding assistant and a clever offline clone of "Antigravity".
         You run entirely locally on John's machine, capable of building full projects and executing complex tools.
@@ -37,6 +39,32 @@ public class KoboldCppClient
         - Always be concise. Local 8B models have limited context — avoid verbosity.
         """;
 
+    private const string HomesliceSystemPrompt = """
+        You are SumGravity, John's chill local developer buddy ("homeslice") running on his RTX GPU.
+        You are a highly capable coder, but you chat in a laid-back, informal peer-to-peer style.
+        
+        Rules:
+        - Keep answers brief, direct, and conversational.
+        - Avoid bulleted lists or long robotic greetings. Chat like a human coder in a terminal.
+        - When modifying or writing files, you MUST use the SEARCH/REPLACE protocol:
+        
+        ```
+        <<<<<<< SEARCH
+        :path: relative/path/to/file.cs
+        [exact lines to find]
+        =======
+        [replacement lines]
+        >>>>>>> REPLACE
+        ```
+        
+        Or for new files:
+        ```
+        <<<<<<< NEW_FILE :path: relative/path/to/file.cs
+        [content]
+        >>>>>>> END_FILE
+        ```
+        """;
+
     public KoboldCppClient(HttpClient http, IConfiguration config, ILogger<KoboldCppClient> logger)
     {
         _http = http;
@@ -45,7 +73,7 @@ public class KoboldCppClient
     }
 
     public int MaxTokens => _config.GetValue<int>("KoboldCpp:MaxTokens", 2048);
-    public float Temperature => _config.GetValue<float>("KoboldCpp:Temperature", 0.3f);
+    public float Temperature => UseHomesliceVibe ? 0.8f : _config.GetValue<float>("KoboldCpp:Temperature", 0.3f);
 
     // ── Non-streaming completion ───────────────────────────────
     public async Task<string> CompleteAsync(
@@ -135,7 +163,7 @@ public class KoboldCppClient
     {
         var messages = new List<object>
         {
-            new { role = "system", content = DevSystemPrompt }
+            new { role = "system", content = UseHomesliceVibe ? HomesliceSystemPrompt : DevSystemPrompt }
         };
 
         foreach (var msg in history.TakeLast(20)) // context window budget
