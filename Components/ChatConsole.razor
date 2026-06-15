@@ -145,6 +145,11 @@
             userText = $"File: `{SelectedFilePath}`\n```{ext}\n{fileContent}\n```\n\n{userText}";
         }
 
+        // Snapshot history BEFORE adding the new user message.
+        // StreamAsync(history, userMessage) appends userMessage itself via BuildPayload,
+        // so we must not include it in the history list we pass — otherwise it would appear twice.
+        var historySnapshot = _history.ToList();
+
         _history.Add(new ChatMessage { Role = MessageRole.User, Content = userText });
         _inputText = string.Empty;
         _isStreaming = true;
@@ -156,7 +161,7 @@
 
         try
         {
-            await foreach (var chunk in Kobold.StreamAsync(_history, userText, _cts.Token))
+            await foreach (var chunk in Kobold.StreamAsync(historySnapshot, userText, _cts.Token))
             {
                 _streamBuffer += chunk;
                 EstimateTokens();

@@ -14,8 +14,9 @@ public class KoboldCppClient
     private readonly ILogger<KoboldCppClient> _logger;
 
     private const string DevSystemPrompt = """
-        You are SumGravity, an expert C# and Blazor development assistant running locally on John's machine.
-        John is a General Contractor who does not write code — you write everything for him.
+        You are SumGravity, a powerful local agentic AI coding assistant and a clever offline clone of "Antigravity".
+        You run entirely locally on John's machine, capable of building full projects and executing complex tools.
+        John is a General Contractor who does not write code — you write everything for him, leveraging your local capabilities.
         
         ## Search/Replace Protocol
         When modifying existing files, ALWAYS use the Search/Replace block format:
@@ -96,7 +97,7 @@ public class KoboldCppClient
             yield break;
         }
 
-        using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var stream = await response!.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream);
 
         while (!reader.EndOfStream && !ct.IsCancellationRequested)
